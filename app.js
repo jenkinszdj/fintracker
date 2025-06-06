@@ -7,12 +7,68 @@ const MOCK_CURRENT_DATE = new Date('2025-06-06T12:00:00.000Z');
 
 // --- Helper Functions ---
 const getNextPaymentDate = (startDate, frequency) => {
-    const nextDate = new Date(startDate);
-    const today = MOCK_CURRENT_DATE;
+    const nextDate = new Date(startDate); // startDate is expected to be a Date object
+    nextDate.setHours(0, 0, 0, 0);
+
+    if (frequency === 'one-time') {
+        return nextDate; // For one-time events, the "next" date is the start date itself.
+    }
+
+    const today = new Date(MOCK_CURRENT_DATE); // Use a new Date instance to avoid modifying MOCK_CURRENT_DATE
     today.setHours(0, 0, 0, 0);
 
-    if (nextDate >= today) return nextDate;
+    // Optimization jump block: If nextDate is far in the past, jump closer to today.
+    if (nextDate < today) {
+        switch (frequency) {
+            case 'weekly': {
+                const diffTime = today.getTime() - nextDate.getTime();
+                const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
+                if (diffDays >= 7) {
+                    const numWeeks = Math.floor(diffDays / 7);
+                    nextDate.setDate(nextDate.getDate() + numWeeks * 7);
+                }
+                break;
+            }
+            case 'bi-weekly': {
+                const diffTime = today.getTime() - nextDate.getTime();
+                const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
+                if (diffDays >= 14) {
+                    const numPeriods = Math.floor(diffDays / 14);
+                    nextDate.setDate(nextDate.getDate() + numPeriods * 14);
+                }
+                break;
+            }
+            case 'monthly': {
+                let monthDiff = (today.getFullYear() - nextDate.getFullYear()) * 12 + today.getMonth() - nextDate.getMonth();
+                if (monthDiff > 0) { // Ensure there's an actual difference to jump
+                    nextDate.setMonth(nextDate.getMonth() + monthDiff);
+                     // If the jump overshot (e.g., Jan 31 + 1 month = Mar 3, but we want Feb 28)
+                     // or if it landed past today (e.g. jumped from Jan 15 to June 15, today is June 6)
+                     // pull back one month. The subsequent while loop will fine-tune.
+                    if (nextDate > today) {
+                        nextDate.setMonth(nextDate.getMonth() - 1);
+                    }
+                }
+                break;
+            }
+            case 'annually': {
+                let yearDiff = today.getFullYear() - nextDate.getFullYear();
+                if (yearDiff > 0) { // Ensure there's an actual difference to jump
+                    nextDate.setFullYear(nextDate.getFullYear() + yearDiff);
+                    // If the jump overshot (e.g. due to leap year day changes or specific date like Feb 29)
+                    // or if it landed past today, pull back one year.
+                    if (nextDate > today) {
+                        nextDate.setFullYear(nextDate.getFullYear() - 1);
+                    }
+                }
+                break;
+            }
+        }
+    }
 
+    // Iterative refinement: Ensure nextDate is the first occurrence on or after today.
+    // This loop will also handle cases where startDate was already >= today or very close.
+    // For 'one-time' frequency, this block is skipped due to the early return.
     switch (frequency) {
         case 'weekly':
             while (nextDate < today) nextDate.setDate(nextDate.getDate() + 7);
@@ -21,15 +77,67 @@ const getNextPaymentDate = (startDate, frequency) => {
             while (nextDate < today) nextDate.setDate(nextDate.getDate() + 14);
             break;
         case 'monthly':
-            while (nextDate < today) nextDate.setMonth(nextDate.getMonth() + 1);
+            // This loop is critical. If nextDate is (e.g.) May 30 and today is June 5,
+            // and the jump landed it on May 30 (because monthDiff was 0 as same month after a year jump),
+            // this loop will advance it to June 30.
+            // Or if startDate is May 15, today June 6. Jump to May 15. Loop advances to June 15.
+            while (nextDate < today) {
+                 // Special handling for advancing months to avoid issues like Jan 31 -> Mar 3 (should be Feb 28/29)
+                 // However, a simple +1 month is usually what's implied by "monthly from X date".
+                 // For true end-of-month stability, one might need more complex date logic or a library.
+                 // The current approach is standard for simple monthly recurrence.
+                nextDate.setMonth(nextDate.getMonth() + 1);
+            }
             break;
         case 'annually':
              while (nextDate < today) nextDate.setFullYear(nextDate.getFullYear() + 1);
             break;
-        default:
-            return nextDate; // For 'one-time'
+        // No default needed as 'one-time' is handled, and other frequencies are covered.
     }
     return nextDate;
+};
+
+const calculatePaymentsMade = (debt, upToDate) => {
+    let totalPayments = 0;
+    let paymentDate = new Date(debt.startDate + 'T00:00:00'); // Ensure time is neutral for date comparisons
+    const processingDate = new Date(upToDate);
+    processingDate.setHours(0,0,0,0); // Normalize upToDate to compare dates only
+
+    if (debt.frequency === 'one-time') {
+        return paymentDate <= processingDate ? Math.min(debt.paymentAmount, debt.totalOwed) : 0;
+    }
+
+    while (paymentDate <= processingDate) {
+        totalPayments += debt.paymentAmount;
+        if (totalPayments >= debt.totalOwed) {
+            totalPayments = debt.totalOwed;
+            break;
+        }
+
+        // Advance paymentDate
+        const currentMonth = paymentDate.getMonth();
+        switch (debt.frequency) {
+            case 'weekly':
+                paymentDate.setDate(paymentDate.getDate() + 7);
+                break;
+            case 'bi-weekly':
+                paymentDate.setDate(paymentDate.getDate() + 14);
+                break;
+            case 'monthly':
+                // Handle advancing month correctly, especially for end-of-month dates
+                paymentDate.setMonth(paymentDate.getMonth() + 1);
+                // If month didn't advance as expected (e.g. Jan 31 to Feb 28, then to Mar 28 instead of Mar 31)
+                // This is a complex problem. For now, simple month advance.
+                // A more robust solution might involve libraries like date-fns or moment.js for date math.
+                break;
+            case 'annually':
+                paymentDate.setFullYear(paymentDate.getFullYear() + 1);
+                break;
+            default: // Should not happen if frequency is validated
+                return totalPayments;
+        }
+    }
+    return totalPayments;
 };
 
 
@@ -50,7 +158,8 @@ export default function App() {
         { id: 1, name: 'Paycheck', amount: 2000, frequency: 'bi-weekly', startDate: '2025-06-13' },
     ]);
     
-    const [editingId, setEditingId] = useState(null);
+    const [editingItemId, setEditingItemId] = useState(null);
+    const [editFormData, setEditFormData] = useState(null);
     const [newItem, setNewItem] = useState({ type: null, data: {} });
 
     // --- Memoized Timeline Calculation ---
@@ -126,9 +235,9 @@ export default function App() {
     const handleAddItem = (type) => {
         let defaultData;
         switch(type) {
-            case 'debt': defaultData = { name: '', totalOwed: '', paymentAmount: '', frequency: 'monthly', startDate: '' }; break;
-            case 'bill': defaultData = { name: '', amount: '', frequency: 'monthly', startDate: '' }; break;
-            case 'income': defaultData = { name: '', amount: '', frequency: 'bi-weekly', startDate: '' }; break;
+            case 'debt': defaultData = { name: '', totalOwed: '0', paymentAmount: '0', frequency: 'monthly', startDate: '' }; break;
+            case 'bill': defaultData = { name: '', amount: '0', frequency: 'monthly', startDate: '' }; break;
+            case 'income': defaultData = { name: '', amount: '0', frequency: 'bi-weekly', startDate: '' }; break;
             default: return;
         }
         setNewItem({ type, data: defaultData });
@@ -136,8 +245,20 @@ export default function App() {
 
     const handleSaveNewItem = () => {
         const { type, data } = newItem;
+
+        if (!data.startDate) {
+            alert('Start date is required.');
+            return;
+        }
+
         const id = Date.now();
-        const itemWithId = { ...data, id, totalOwed: parseFloat(data.totalOwed) || 0, paymentAmount: parseFloat(data.paymentAmount) || 0, amount: parseFloat(data.amount) || 0 };
+        const itemWithId = {
+            ...data,
+            id,
+            totalOwed: parseFloat(data.totalOwed) || 0,
+            paymentAmount: parseFloat(data.paymentAmount) || 0,
+            amount: parseFloat(data.amount) || 0
+        };
 
         switch(type) {
             case 'debt': setDebts([...debts, itemWithId]); break;
@@ -157,24 +278,180 @@ export default function App() {
             default: return;
         }
     };
+
+    const handleStartEdit = (type, item) => {
+        setEditingItemId(item.id);
+        const formattedStartDate = item.startDate ? new Date(item.startDate + 'T00:00:00').toISOString().split('T')[0] : '';
+        setEditFormData({ ...item, type, startDate: formattedStartDate });
+    };
+
+    const handleCancelEdit = () => {
+        setEditingItemId(null);
+        setEditFormData(null);
+    };
+
+    const handleSaveEditedItem = () => {
+        if (!editFormData) return;
+
+        if (!editFormData.startDate) {
+            alert('Start date is required.');
+            return;
+        }
+
+        const { type, ...data } = editFormData;
+
+        // data already contains id, name, frequency, startDate (potentially formatted for input)
+        // and the numerical values as strings from the form.
+        const savedData = {
+            ...data, // Includes id, name, frequency, potentially formatted startDate
+            totalOwed: parseFloat(data.totalOwed) || 0,
+            paymentAmount: parseFloat(data.paymentAmount) || 0,
+            amount: parseFloat(data.amount) || 0
+            // Note: startDate from editFormData is already in YYYY-MM-DD string format,
+            // which is the format currently used for storage.
+        };
+
+        switch(type) {
+            case 'debt':
+                setDebts(debts.map(d => d.id === savedData.id ? savedData : d));
+                break;
+            case 'bill':
+                setBills(bills.map(b => b.id === savedData.id ? savedData : b));
+                break;
+            case 'income':
+                setIncomes(incomes.map(i => i.id === savedData.id ? savedData : i));
+                break;
+            default: return;
+        }
+        handleCancelEdit();
+    };
+
+    const handleChangeEditForm = (e) => {
+        const { name, value } = e.target;
+        setEditFormData(prev => ({ ...prev, [name]: value }));
+    };
     
     // --- Render Functions ---
     const renderItemRow = (item, type) => {
-        const isEditing = editingId === item.id;
+        const isEditing = editingItemId === item.id;
         const ItemIcon = { debt: Car, bill: CreditCard, income: DollarSign }[type];
+
+        let displayedOwed = item.totalOwed;
+        if (type === 'debt' && !isEditing) { // Only calculate for display, not during edit mode for totalOwed
+            const paymentsMade = calculatePaymentsMade(item, MOCK_CURRENT_DATE);
+            displayedOwed = Math.max(0, item.totalOwed - paymentsMade);
+        }
+
+        if (isEditing && editFormData) {
+            const fields = {
+                debt: ['name', 'totalOwed', 'paymentAmount', 'frequency', 'startDate'],
+                bill: ['name', 'amount', 'frequency', 'startDate'],
+                income: ['name', 'amount', 'frequency', 'startDate'],
+            }[type];
+
+            return (
+                <div key={item.id} className="grid grid-cols-4 md:grid-cols-6 gap-2 items-center p-3 bg-slate-700 rounded-lg mb-2">
+                    {/* Column 1: Name (All types) */}
+                    <div className="col-span-1 md:col-span-1">
+                        <input type="text" name="name" value={editFormData.name} onChange={handleChangeEditForm} className="w-full bg-slate-800 border border-slate-600 rounded-md p-1 text-sm text-white" placeholder="Name" />
+                    </div>
+
+                    {/* Column 2: TotalOwed (Debt) / Amount (Bill/Income) */}
+                    <div className="text-center">
+                        {type === 'debt' ? (
+                            <input type="number" name="totalOwed" value={editFormData.totalOwed} onChange={handleChangeEditForm} className="w-full bg-slate-800 border border-slate-600 rounded-md p-1 text-sm text-white" placeholder="Total Owed" />
+                        ) : (
+                            <input type="number" name="amount" value={editFormData.amount} onChange={handleChangeEditForm} className="w-full bg-slate-800 border border-slate-600 rounded-md p-1 text-sm text-white" placeholder="Amount" />
+                        )}
+                    </div>
+
+                    {/* Column 3: PaymentAmount (Debt) / Frequency (Bill/Income) */}
+                    <div className="text-center">
+                        {type === 'debt' ? (
+                            <input type="number" name="paymentAmount" value={editFormData.paymentAmount} onChange={handleChangeEditForm} className="w-full bg-slate-800 border border-slate-600 rounded-md p-1 text-sm text-white" placeholder="Payment" />
+                        ) : (
+                            <select name="frequency" value={editFormData.frequency} onChange={handleChangeEditForm} className="w-full bg-slate-800 border border-slate-600 rounded-md p-1 text-sm text-white">
+                                <option value="weekly">Weekly</option>
+                                <option value="bi-weekly">Bi-Weekly</option>
+                                <option value="monthly">Monthly</option>
+                                <option value="annually">Annually</option>
+                                <option value="one-time">One-Time</option>
+                            </select>
+                        )}
+                    </div>
+
+                    {/* Column 4: Frequency (Debt) / Start Date (Bill/Income, small screens) / Empty (Bill/Income, md screens) */}
+                    {/* This column's content depends on type and screen size */}
+                    {type === 'debt' ? (
+                        // For Debt: Frequency (visible on md+ screens, hidden on sm)
+                        <div className="hidden md:block text-center">
+                            <select name="frequency" value={editFormData.frequency} onChange={handleChangeEditForm} className="w-full bg-slate-800 border border-slate-600 rounded-md p-1 text-sm text-white">
+                                <option value="weekly">Weekly</option>
+                                <option value="bi-weekly">Bi-Weekly</option>
+                                <option value="monthly">Monthly</option>
+                                <option value="annually">Annually</option>
+                                <option value="one-time">One-Time</option>
+                            </select>
+                        </div>
+                    ) : (
+                        // For Bill/Income: This is the 4th column.
+                        // On small screens, it's not used (Name, Amount, Frequency, Actions = 4 cells).
+                        // On md+ screens, it's an empty placeholder to align with Debt's Frequency column.
+                        <div className="hidden md:block"></div> // Empty placeholder for Bill/Income on md screens
+                    )}
+
+                    {/* Column 5: StartDate (All types, but hidden on small screens for all) */}
+                    {/* For Debt: hidden on small screens (Name, TotalOwed, Payment, Actions). Visible on md+. */}
+                    {/* For Bill/Income: hidden on small screens (Name, Amount, Frequency, Actions). Visible on md+. */}
+                    <div className="hidden md:block text-center">
+                        <input type="date" name="startDate" value={editFormData.startDate} onChange={handleChangeEditForm} className="w-full bg-slate-800 border border-slate-600 rounded-md p-1 text-sm text-white" />
+                    </div>
+
+                    {/* Column 6 (md) / Column 4 (sm): Actions */}
+                    <div className="flex justify-end gap-2 items-center"> {/* This will take the last available column */}
+                        <button onClick={handleSaveEditedItem} className="p-2 text-green-400 hover:text-green-300 transition-colors"><Save size={18} /></button>
+                        <button onClick={handleCancelEdit} className="p-2 text-gray-400 hover:text-gray-300 transition-colors"><X size={18} /></button>
+                    </div>
+                </div>
+            );
+        }
+
+        // Display Mode
+        const nextDateStr = getNextPaymentDate(new Date(item.startDate + 'T00:00:00'), item.frequency).toLocaleDateString();
 
         return (
             <div key={item.id} className="grid grid-cols-4 md:grid-cols-6 gap-2 items-center p-3 bg-white/5 rounded-lg mb-2">
+                {/* Column 1: Name */}
                 <div className="col-span-1 md:col-span-1 flex items-center gap-2">
                    <ItemIcon className="w-5 h-5 text-indigo-400 hidden sm:block" />
                    <span>{item.name}</span>
                 </div>
-                {type === 'debt' && <div className="text-center">${item.totalOwed.toFixed(2)}</div>}
+
+                {/* Column 2: Total Owed (Debt) / Empty placeholder (Bill/Income for MD) */}
+                {type === 'debt' ? (
+                    <div className="text-center">${displayedOwed.toFixed(2)}</div>
+                ) : (
+                    <div className="hidden md:block"></div> /* Align Bill/Income Amount with Debt's PaymentAmount column */
+                )}
+
+                {/* Column 3: Payment Amount (Debt) / Amount (Bill/Income) */}
                 <div className="text-center">${(type === 'debt' ? item.paymentAmount : item.amount).toFixed(2)}</div>
-                <div className="text-center capitalize">{item.frequency}</div>
-                {type !== 'debt' && <div className="hidden md:block"></div>}
-                <div className="hidden md:block text-center">{new Date(item.startDate + 'T00:00:00').toLocaleDateString()}</div>
+
+                {/* Column 4: Frequency (All types, but hidden on SM for Debt) */}
+                {type === 'debt' ? (
+                    <div className="hidden md:block text-center capitalize">{item.frequency}</div>
+                ) : (
+                    <div className="text-center capitalize">{item.frequency}</div>
+                )}
+
+                {/* Column 5: Next Due Date (All types, MD screens only for this dedicated column) */}
+                <div className="hidden md:block text-center">
+                    {nextDateStr}
+                </div>
+
+                {/* Column 6: Actions (All types) */}
                 <div className="flex justify-end gap-2">
+                     <button onClick={() => handleStartEdit(type, item)} className="p-2 text-blue-400 hover:text-blue-300 transition-colors"><Edit size={18} /></button>
                      <button onClick={() => handleDeleteItem(type, item.id)} className="p-2 text-red-400 hover:text-red-300 transition-colors"><Trash2 size={18} /></button>
                 </div>
             </div>
@@ -356,6 +633,14 @@ export default function App() {
                                 <button onClick={() => handleAddItem('bill')} className="flex items-center gap-1 text-sm bg-orange-600/20 text-orange-300 px-3 py-1 rounded-full hover:bg-orange-600/40 transition-colors">
                                     <PlusCircle size={16} /> Add
                                 </button>
+                            </div>
+                             <div className="grid grid-cols-4 md:grid-cols-6 gap-2 text-sm font-semibold text-slate-400 mb-2 px-3">
+                                <div className="col-span-1">Name</div>
+                                <div className="hidden md:block text-center"></div> {/* Empty header for MD's 2nd col */}
+                                <div className="text-center">Amount</div>
+                                <div className="text-center">Frequency</div>
+                                <div className="hidden md:block text-center">Next Date</div>
+                                <div className="text-right">Actions</div>
                             </div>
                             <div className="space-y-2">
                                 {bills.map(item => renderItemRow(item, 'bill'))}
