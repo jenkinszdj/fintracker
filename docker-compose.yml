@@ -1,0 +1,11 @@
+version: '3.8' # Specifies the Docker Compose file format version
+
+services:
+  financial-tracker-app:
+    build:
+      context: . # Use the current directory as the build context (where Dockerfile is)
+      dockerfile: Dockerfile # Specify the Dockerfile name (optional if it's named 'Dockerfile')
+    ports:
+      - "8080:80" # Map port 8080 on the host to port 80 in the container (Nginx default)
+    container_name: financial-tracker # A friendly name for the running container
+    restart: unless-stopped # Optional: Restart policy

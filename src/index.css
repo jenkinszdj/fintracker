@@ -1,0 +1,8 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* You can add any global base styles here if needed */
+body {
+  font-family: sans-serif; /* Match with app.js's font-sans */
+}
