@@ -417,31 +417,33 @@ export default function App() {
         }
 
         // Display Mode
-        const nextDateStr = getNextPaymentDate(new Date(item.startDate + 'T00:00:00'), item.frequency).toLocaleDateString();
+        const nextDateStr = getNextPaymentDate(new Date(item.startDate + 'T00:00:00'), item.frequency).toLocaleDateString(undefined, { month: '2-digit', day: '2-digit' });
 
         return (
-            <div key={item.id} className="grid grid-cols-4 md:grid-cols-6 gap-2 items-center p-3 bg-white/5 rounded-lg mb-2">
+            <div key={item.id} className="group grid grid-cols-4 md:grid-cols-7 gap-2 items-center p-2 bg-white/5 rounded-lg mb-2">
                 {/* Column 1: Name */}
-                <div className="col-span-1 md:col-span-1 flex items-center gap-2">
+                <div className="col-span-2 md:col-span-2 flex items-center gap-2">
                    <ItemIcon className="w-5 h-5 text-indigo-400 hidden sm:block" />
                    <span>{item.name}</span>
                 </div>
 
                 {/* Column 2: Total Owed (Debt) / Empty placeholder (Bill/Income for MD) */}
                 {type === 'debt' ? (
-                    <div className="text-center">${displayedOwed.toFixed(2)}</div>
+                    <div className="hidden md:block text-center">${displayedOwed.toFixed(2)}</div>
                 ) : (
                     <div className="hidden md:block"></div> /* Align Bill/Income Amount with Debt's PaymentAmount column */
                 )}
 
                 {/* Column 3: Payment Amount (Debt) / Amount (Bill/Income) */}
+                {/* For SM screens, this is the first data column after Name for Debts, and for Bills/Incomes */}
                 <div className="text-center">${(type === 'debt' ? item.paymentAmount : item.amount).toFixed(2)}</div>
 
-                {/* Column 4: Frequency (All types, but hidden on SM for Debt) */}
+                {/* Column 4: Frequency (All types, but hidden on SM for Debt and Bill/Income) */}
                 {type === 'debt' ? (
                     <div className="hidden md:block text-center capitalize">{item.frequency}</div>
                 ) : (
-                    <div className="text-center capitalize">{item.frequency}</div>
+                    // For Bills/Incomes, this is Frequency, hidden on SM
+                    <div className="hidden md:block text-center capitalize">{item.frequency}</div>
                 )}
 
                 {/* Column 5: Next Due Date (All types, MD screens only for this dedicated column) */}
@@ -450,7 +452,7 @@ export default function App() {
                 </div>
 
                 {/* Column 6: Actions (All types) */}
-                <div className="flex justify-end gap-2">
+                <div className="flex justify-end gap-2 opacity-50 group-hover:opacity-100 focus-within:opacity-100 transition-opacity duration-200 ease-in-out">
                      <button onClick={() => handleStartEdit(type, item)} className="p-2 text-blue-400 hover:text-blue-300 transition-colors"><Edit size={18} /></button>
                      <button onClick={() => handleDeleteItem(type, item.id)} className="p-2 text-red-400 hover:text-red-300 transition-colors"><Trash2 size={18} /></button>
                 </div>
@@ -543,7 +545,7 @@ export default function App() {
                                     <div key={index} className="flex items-start gap-4 pl-8 relative">
                                         <div className={`absolute left-0 top-1.5 transform -translate-x-1/2 w-4 h-4 rounded-full border-2 border-slate-700 ${event.type === 'income' ? 'bg-green-500' : 'bg-red-500'}`}></div>
                                         <div className="flex-shrink-0 w-24 text-sm text-slate-400 font-medium">
-                                            {event.date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}
+                                            {event.date.toLocaleDateString(undefined, { month: '2-digit', day: '2-digit' })}
                                         </div>
                                         <div className="flex-grow bg-slate-800 p-3 rounded-lg">
                                             <div className="flex justify-between items-center">
@@ -600,6 +602,14 @@ export default function App() {
                                     <PlusCircle size={16} /> Add
                                 </button>
                             </div>
+                            <div className="grid grid-cols-4 md:grid-cols-7 gap-2 text-sm font-semibold text-slate-400 mb-2 px-3">
+                                <div className="col-span-2 md:col-span-2">Name</div>
+                                <div className="hidden md:block text-center"></div> {/* Empty header for MD's 2nd col */}
+                                <div className="text-center">Amount</div>
+                                <div className="hidden md:block text-center">Frequency</div>
+                                <div className="hidden md:block text-center">Next Date</div>
+                                <div className="text-right">Actions</div>
+                            </div>
                             <div className="space-y-2">
                                {incomes.map(item => renderItemRow(item, 'income'))}
                             </div>
@@ -613,11 +623,11 @@ export default function App() {
                                     <PlusCircle size={16} /> Add
                                 </button>
                             </div>
-                             <div className="grid grid-cols-4 md:grid-cols-6 gap-2 text-sm font-semibold text-slate-400 mb-2 px-3">
-                                <div className="col-span-1">Name</div>
-                                <div className="text-center">Total Owed</div>
+                             <div className="grid grid-cols-4 md:grid-cols-7 gap-2 text-sm font-semibold text-slate-400 mb-2 px-3">
+                                <div className="col-span-2 md:col-span-2">Name</div>
+                                <div className="hidden md:block text-center">Total Owed</div>
                                 <div className="text-center">Payment</div>
-                                <div className="text-center">Frequency</div>
+                                <div className="hidden md:block text-center">Frequency</div>
                                 <div className="hidden md:block text-center">Next Due</div>
                                 <div className="text-right">Actions</div>
                             </div>
@@ -634,11 +644,11 @@ export default function App() {
                                     <PlusCircle size={16} /> Add
                                 </button>
                             </div>
-                             <div className="grid grid-cols-4 md:grid-cols-6 gap-2 text-sm font-semibold text-slate-400 mb-2 px-3">
-                                <div className="col-span-1">Name</div>
+                             <div className="grid grid-cols-4 md:grid-cols-7 gap-2 text-sm font-semibold text-slate-400 mb-2 px-3">
+                                <div className="col-span-2 md:col-span-2">Name</div>
                                 <div className="hidden md:block text-center"></div> {/* Empty header for MD's 2nd col */}
                                 <div className="text-center">Amount</div>
-                                <div className="text-center">Frequency</div>
+                                <div className="hidden md:block text-center">Frequency</div>
                                 <div className="hidden md:block text-center">Next Date</div>
                                 <div className="text-right">Actions</div>
                             </div>
